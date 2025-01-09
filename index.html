@@ -8,6 +8,11 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <!-- آیکون‌های Font Awesome -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <!-- Animate.css برای انیمیشن‌ها -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css" rel="stylesheet">
+    <!-- کتابخانه‌های گزارش‌گیری -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.17.4/xlsx.full.min.js"></script>
     <style>
         /* تم لایت پیش‌فرض */
         body.light-theme {
@@ -97,6 +102,34 @@
             font-size: 1.5rem;
             cursor: pointer;
         }
+
+        /* انیمیشن بارگذاری */
+        .loading-spinner {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 2rem;
+            color: #007bff;
+        }
+
+        /* گرید ویو برای لیست جوشکاران */
+        .grid-view {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .grid-view .card {
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        .grid-view .card:hover {
+            transform: scale(1.05);
+        }
     </style>
 </head>
 <body class="light-theme">
@@ -104,6 +137,11 @@
     <button class="theme-switcher" onclick="toggleTheme()">
         <i class="fas fa-moon"></i> <!-- آیکون ماه برای تم دارک -->
     </button>
+
+    <!-- انیمیشن بارگذاری -->
+    <div class="loading-spinner animate__animated animate__rotateIn">
+        <i class="fas fa-spinner fa-spin"></i>
+    </div>
 
     <!-- Modal برای نمایش پیغام -->
     <div class="modal fade" id="infoModal" tabindex="-1" aria-labelledby="infoModalLabel" aria-hidden="true">
@@ -150,6 +188,16 @@
         <div class="row mt-4" id="welderCardsContainer">
             <!-- کارت‌ها برای هر BASE_METAL اینجا نمایش داده می‌شوند -->
         </div>
+        <!-- دکمه‌های گزارش‌گیری و نمایش لیست جوشکاران -->
+        <div class="text-center mt-4">
+            <button class="btn btn-success" onclick="generatePDF()">دانلود گزارش PDF</button>
+            <button class="btn btn-warning" onclick="generateExcel()">دانلود گزارش Excel</button>
+            <button class="btn btn-info" onclick="showHighRepairWelders()">نمایش جوشکاران با درصد تعمیرات بالا</button>
+        </div>
+        <!-- گرید ویو برای لیست جوشکاران -->
+        <div id="highRepairWeldersGrid" class="grid-view mt-4" style="display: none;">
+            <!-- لیست جوشکاران با درصد تعمیرات بالا اینجا نمایش داده می‌شود -->
+        </div>
         <!-- اعتبار برنامه نویس -->
         <div class="text-center mt-5">
             <p>برنامه نویس: Amin Naseri</p>
@@ -173,7 +221,9 @@
         const welderName = document.getElementById('welderName');
         const welderNationalCode = document.getElementById('welderNationalCode');
         const welderCardsContainer = document.getElementById('welderCardsContainer');
+        const highRepairWeldersGrid = document.getElementById('highRepairWeldersGrid');
         let weldersData = [];
+        let selectedWelderRecords = []; // ذخیره رکوردهای جوشکار انتخاب‌شده
 
         // تابع برای تولید رنگ‌های طیفی
         function getColor(percentage) {
@@ -212,13 +262,13 @@
         // رویداد تغییر انتخاب
         welderSelect.addEventListener('change', function() {
             const selectedWelder = this.value;
-            const welderRecords = weldersData.filter(w => w.WELDER === selectedWelder);
+            selectedWelderRecords = weldersData.filter(w => w.WELDER === selectedWelder); // ذخیره رکوردهای جوشکار انتخاب‌شده
 
             // پاک کردن کارت‌های قبلی
             welderCardsContainer.innerHTML = '';
 
-            if (welderRecords.length > 0) {
-                const firstRecord = welderRecords[0];
+            if (selectedWelderRecords.length > 0) {
+                const firstRecord = selectedWelderRecords[0];
                 const welderFullName = `${firstRecord.First_Name} ${firstRecord.Last_Name}`;
                 const nationalCode = firstRecord.National_Code;
 
@@ -228,7 +278,7 @@
                 welderInfoCard.style.display = 'block';
 
                 // گروه‌بندی رکوردها بر اساس BASE_METAL
-                const groupedByBaseMetal = welderRecords.reduce((acc, record) => {
+                const groupedByBaseMetal = selectedWelderRecords.reduce((acc, record) => {
                     const baseMetal = record.BASE_METAL;
                     if (!acc[baseMetal]) {
                         acc[baseMetal] = [];
@@ -373,6 +423,90 @@
 
         // اعمال تم لایت پیش‌فرض
         document.body.classList.add('light-theme');
+
+        // تابع تولید گزارش PDF
+        function generatePDF() {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+
+            // اضافه کردن فونت فارسی (نیاز به فایل فونت دارد)
+            doc.addFont('IRANSansWeb.ttf', 'IRANSans', 'normal');
+            doc.setFont('IRANSans');
+
+            // عنوان گزارش
+            doc.setFontSize(18);
+            doc.text("گزارش جوشکار انتخاب‌شده", 10, 10);
+
+            // اطلاعات جوشکار
+            doc.setFontSize(12);
+            doc.text(`نام جوشکار: ${welderName.textContent}`, 10, 20);
+            doc.text(`کد ملی: ${welderNationalCode.textContent}`, 10, 30);
+
+            // اطلاعات رکوردها
+            let yPos = 40;
+            selectedWelderRecords.forEach((record, index) => {
+                doc.text(`رکورد ${index + 1}:`, 10, yPos);
+                doc.text(`- BASE_METAL: ${record.BASE_METAL}`, 15, yPos + 10);
+                doc.text(`- Welded(QTY): ${record['Welded(QTY)']}`, 15, yPos + 20);
+                doc.text(`- Selected(QTY): ${record['Selected(QTY)']}`, 15, yPos + 30);
+                doc.text(`- Shoot(QTY): ${record['Shoot(QTY)']}`, 15, yPos + 40);
+                doc.text(`- Acc_(QTY): ${record['Acc_(QTY)']}`, 15, yPos + 50);
+                doc.text(`- Repair_Qty: ${record.Repair_Qty}`, 15, yPos + 60);
+                yPos += 70;
+            });
+
+            // ذخیره فایل PDF
+            doc.save("report.pdf");
+        }
+
+        // تابع تولید گزارش Excel
+        function generateExcel() {
+            const worksheet = XLSX.utils.json_to_sheet(selectedWelderRecords);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "جوشکار انتخاب‌شده");
+            XLSX.writeFile(workbook, "report.xlsx");
+        }
+
+        // تابع نمایش لیست جوشکاران با درصد تعمیرات بالا
+        function showHighRepairWelders() {
+            const highRepairWelders = weldersData.filter(w => {
+                const records = weldersData.filter(r => r.WELDER === w.WELDER);
+                const shootQty = records.reduce((sum, record) => sum + (parseInt(record['Shoot(QTY)']) || 0), 0);
+                const repairQty = records.reduce((sum, record) => sum + (parseInt(record.Repair_Qty) || 0), 0);
+                const repairPercentage = (repairQty / shootQty) * 100 || 0;
+                return repairPercentage > 5;
+            });
+
+            const uniqueHighRepairWelders = [...new Set(highRepairWelders.map(w => w.WELDER))];
+
+            // پاک کردن گرید قبلی
+            highRepairWeldersGrid.innerHTML = '';
+
+            // نمایش جوشکاران در گرید ویو
+            uniqueHighRepairWelders.forEach(welder => {
+                const records = weldersData.filter(r => r.WELDER === welder);
+                const shootQty = records.reduce((sum, record) => sum + (parseInt(record['Shoot(QTY)']) || 0), 0);
+                const repairQty = records.reduce((sum, record) => sum + (parseInt(record.Repair_Qty) || 0), 0);
+                const repairPercentage = (repairQty / shootQty) * 100 || 0;
+
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.innerHTML = `
+                    <div class="card-body">
+                        <h5 class="card-title">${welder}</h5>
+                        <p class="card-text">درصد تعمیرات: <span class="repair-percentage">${repairPercentage.toFixed(2)}%</span></p>
+                    </div>
+                `;
+                card.addEventListener('click', () => {
+                    welderSelect.value = welder;
+                    welderSelect.dispatchEvent(new Event('change'));
+                });
+                highRepairWeldersGrid.appendChild(card);
+            });
+
+            // نمایش گرید ویو
+            highRepairWeldersGrid.style.display = 'grid';
+        }
     </script>
 </body>
 </html>
