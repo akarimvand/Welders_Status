@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="fa">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>وضعیت درصد خطای کار جوشکاران</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.3/font/bootstrap-icons.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @font-face {
+            font-family: 'IRANSansWeb';
+            src: url('IRANSansWeb.ttf') format('truetype');
+        }
+        body {
+            font-family: 'IRANSansWeb', sans-serif;
+            direction: rtl;
+            text-align: right;
+        }
+        .card-highlight {
+            background-color: rgba(255, 99, 71, 0.1); /* قرمز کم‌رنگ */
+            animation: pulse 1.5s infinite; /* انیمیشن */
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+            100% { transform: scale(1); }
+        }
+        .dark-mode {
+            background-color: #121212;
+            color: #ffffff;
+        }
+        .dark-mode .card {
+            background-color: #1e1e1e;
+            color: #ffffff;
+        }
+        .dark-mode .card-body {
+            background-color: #1e1e1e;
+            color: #ffffff;
+        }
+        .dark-mode .list-group-item {
+            background-color: #1e1e1e;
+            color: #ffffff;
+        }
+        /* استایل برای کومبو باکس دو ستونه */
+        .two-column-option {
+            display: flex;
+            justify-content: space-between;
+        }
+        .two-column-option span {
+            flex: 1;
+            text-align: right;
+        }
+        .two-column-option span:first-child {
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h1 class="text-center">وضعیت درصد خطای کار جوشکاران</h1>
+            <div>
+                <button id="darkModeBtn" class="btn btn-dark"><i class="bi bi-moon"></i></button>
+                <button id="lightModeBtn" class="btn btn-light"><i class="bi bi-sun"></i></button>
+                <button id="showHighRepairBtn" class="btn btn-warning"><i class="bi bi-exclamation-triangle"></i> ⚠ جوشکاران با تعمیر بالا</button>
+            </div>
+        </div>
+        <div class="row mt-4">
+            <div class="col-md-6">
+                <label for="welderSelect" class="form-label">انتخاب جوشکار:</label>
+                <select class="form-select" id="welderSelect"></select>
+            </div>
+        </div>
+        <div class="row mt-4">
+            <div class="col-md-12" id="welderInfoCard"></div>
+        </div>
+        <div class="row mt-4" id="baseMetalCardsContainer"></div>
+        <div class="row mt-4">
+            <div class="col-md-12">
+                <ul class="list-group" id="highRepairList"></ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const dataUrl = "https://raw.githubusercontent.com/akarimvand/Welders_Status/refs/heads/main/data.txt";
+
+        // پالت رنگ‌ها برای BASE METAL
+        const colorPalette = [
+            '#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF',
+            '#FF9F40', '#C9CBCF', '#77DD77', '#FDFD96', '#84B6F4'
+        ];
+
+        async function fetchData() {
+            try {
+                const response = await fetch(dataUrl);
+                const text = await response.text();
+                const rows = text.split('\n').slice(1); // حذف هدر
+                return rows.map(row => {
+                    const columns = row.split(',');
+                    return {
+                        WELDER: columns[0],
+                        First_Name: columns[1],
+                        Last_Name: columns[2],
+                        Welded_QTY: parseInt(columns[3]) || 0, // تبدیل NaN به 0
+                        Selected_QTY: parseInt(columns[4]) || 0, // تبدیل NaN به 0
+                        Shoot_QTY: parseInt(columns[5]) || 0, // تبدیل NaN به 0
+                        Acc_QTY: parseInt(columns[6]) || 0, // تبدیل NaN به 0
+                        Repair_Qty: parseInt(columns[7]) || 0, // تبدیل NaN به 0
+                        BASE_METAL: columns[8],
+                        Company: columns[9],
+                        National_Code: columns[10]
+                    };
+                });
+            } catch (error) {
+                console.error("خطا در دریافت داده‌ها:", error);
+                return [];
+            }
+        }
+
+        function calculateErrorRate(repairQty, shootQty) {
+            if (shootQty === 0) return 0; // جلوگیری از تقسیم بر صفر
+            return ((repairQty / shootQty) * 100).toFixed(2);
+        }
+
+        function createWelderInfoCard(welderData) {
+            const welder = welderData[0];
+            return `
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">اطلاعات جوشکار</h5>
+                        <p class="card-text">
+                            <strong>کد جوشکار:</strong> ${welder.WELDER}<br>
+                            <strong>نام:</strong> ${welder.First_Name}<br>
+                            <strong>نام خانوادگی:</strong> ${welder.Last_Name}<br>
+                            <strong>کد ملی:</strong> ${welder.National_Code}<br>
+                            <strong>شرکت:</strong> ${welder.Company}<br>
+                        </p>
+                    </div>
+                </div>
+            `;
+        }
+
+        function createBaseMetalCard(welderData, baseMetal, color) {
+            const filteredData = welderData.filter(d => d.BASE_METAL === baseMetal);
+            const errorRate = calculateErrorRate(filteredData[0].Repair_Qty, filteredData[0].Shoot_QTY);
+            const cardClass = errorRate > 5 ? "card-highlight" : "";
+
+            return `
+                <div class="col-md-6 mb-4">
+                    <div class="card ${cardClass}">
+                        <div class="card-body">
+                            <h5 class="card-title">${baseMetal}</h5>
+                            <div class="chart-container">
+                                <canvas id="chart-${baseMetal}"></canvas>
+                            </div>
+                            <p class="text-center mt-3"><strong>درصد تعمیرات:</strong> <span class="fw-bold">${errorRate}%</span></p>
+                            <p class="card-text">
+                                <strong>تعداد سر جوش شده:</strong> ${filteredData[0].Welded_QTY}<br>
+                                <strong>تعداد درخواست شده:</strong> ${filteredData[0].Selected_QTY}<br>
+                                <strong>تعداد رادیوگرافی شده:</strong> ${filteredData[0].Shoot_QTY}<br>
+                                <strong>تعداد تائید شده:</strong> ${filteredData[0].Acc_QTY}<br>
+                                <strong>تعداد تعمیرات:</strong> ${filteredData[0].Repair_Qty}<br>
+                            </p>
+                            <div class="row">
+                                <div class="col-md-12">
+                                    <canvas id="bar-chart-${baseMetal}"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderPieChart(ctx, labels, data, color) {
+            new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: data,
+                        backgroundColor: [color, '#E0E0E0'], // رنگ BASE METAL و خاکستری برای بخش دیگر
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    plugins: {
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const label = context.label || '';
+                                    const value = context.raw || 0;
+                                    const percentage = ((value / context.dataset.data.reduce((a, b) => a + b, 0)) * 100).toFixed(2);
+                                    return `${label}: ${value} (${percentage}%)`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function renderBarChart(ctx, labels, data, color) {
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'تعداد',
+                        data: data,
+                        backgroundColor: color,
+                        borderColor: color,
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
+        async function updateUI(welder) {
+            const data = await fetchData();
+            const welderData = data.filter(d => d.WELDER === welder);
+
+            // نمایش اطلاعات جوشکار
+            const welderInfoCard = document.getElementById('welderInfoCard');
+            welderInfoCard.innerHTML = createWelderInfoCard(welderData);
+
+            // نمایش کارت‌های BASE METAL
+            const baseMetalCardsContainer = document.getElementById('baseMetalCardsContainer');
+            const baseMetals = [...new Set(welderData.map(d => d.BASE_METAL))];
+            baseMetalCardsContainer.innerHTML = baseMetals.map((baseMetal, index) => {
+                const color = colorPalette[index % colorPalette.length]; // انتخاب رنگ از پالت
+                return createBaseMetalCard(welderData, baseMetal, color);
+            }).join('');
+
+            // رسم نمودارهای دایره‌ای و میله‌ای
+            baseMetals.forEach((baseMetal, index) => {
+                const filteredData = welderData.filter(d => d.BASE_METAL === baseMetal)[0];
+                const ctxPie = document.getElementById(`chart-${baseMetal}`).getContext('2d');
+                const ctxBar = document.getElementById(`bar-chart-${baseMetal}`).getContext('2d');
+                const labels = ['تائید شده', 'تعمیرات'];
+                const dataPie = [filteredData.Acc_QTY, filteredData.Repair_Qty];
+                const dataBar = [filteredData.Welded_QTY, filteredData.Selected_QTY, filteredData.Shoot_QTY, filteredData.Acc_QTY, filteredData.Repair_Qty];
+                const color = colorPalette[index % colorPalette.length]; // انتخاب رنگ از پالت
+
+                renderPieChart(ctxPie, labels, dataPie, color);
+                renderBarChart(ctxBar, ['سر جوش شده', 'درخواست شده', 'رادیوگرافی شده', 'تائید شده', 'تعمیرات'], dataBar, color);
+            });
+        }
+
+        async function showHighRepairList() {
+            const data = await fetchData();
+            const highRepairWelders = data.filter(d => {
+                const errorRate = calculateErrorRate(d.Repair_Qty, d.Shoot_QTY);
+                return errorRate > 5;
+            });
+
+            // گروه‌بندی جوشکاران و انتخاب بزرگترین درصد تعمیرات
+            const welderMap = new Map();
+            highRepairWelders.forEach(welder => {
+                const errorRate = calculateErrorRate(welder.Repair_Qty, welder.Shoot_QTY);
+                if (!welderMap.has(welder.WELDER) || errorRate > welderMap.get(welder.WELDER).errorRate) {
+                    welderMap.set(welder.WELDER, { welder, errorRate });
+                }
+            });
+
+            const highRepairList = document.getElementById('highRepairList');
+            highRepairList.innerHTML = Array.from(welderMap.values()).map(({ welder, errorRate }) => {
+                return `
+                    <li class="list-group-item">
+                        <span>${welder.First_Name} ${welder.Last_Name} (${welder.WELDER}) - ${errorRate}%</span>
+                        <button class="btn btn-sm btn-primary float-end" onclick="filterWelder('${welder.WELDER}')">انتخاب</button>
+                    </li>
+                `;
+            }).join('');
+        }
+
+        function filterWelder(welder) {
+            document.getElementById('welderSelect').value = welder;
+            updateUI(welder);
+            window.scrollTo(0, 0); // اسکرول به بالای صفحه
+        }
+
+        function toggleDarkMode() {
+            document.body.classList.toggle('dark-mode');
+        }
+
+        async function initialize() {
+            const data = await fetchData();
+            const welderSelect = document.getElementById('welderSelect');
+
+            // ایجاد یک Map برای ذخیره‌سازی جوشکاران بدون تکراری
+            const welderMap = new Map();
+            data.forEach(welder => {
+                if (!welderMap.has(welder.WELDER)) {
+                    welderMap.set(welder.WELDER, welder);
+                }
+            });
+
+            // پر کردن کومبو باکس با نام و نام خانوادگی (بدون تکراری)
+            welderSelect.innerHTML = Array.from(welderMap.values()).map(welder => `
+                <option value="${welder.WELDER}">
+                    <div class="two-column-option">
+                        <span>${welder.First_Name} ${welder.Last_Name}</span>
+                        <span>${welder.WELDER}</span>
+                    </div>
+                </option>
+            `).join('');
+
+            welderSelect.addEventListener('change', (e) => {
+                updateUI(e.target.value);
+            });
+
+            document.getElementById('darkModeBtn').addEventListener('click', toggleDarkMode);
+            document.getElementById('lightModeBtn').addEventListener('click', toggleDarkMode);
+            document.getElementById('showHighRepairBtn').addEventListener('click', showHighRepairList);
+
+            // بارگذاری اولیه
+            if (Array.from(welderMap.values()).length > 0) {
+                updateUI(Array.from(welderMap.values())[0].WELDER);
+            }
+        }
+
+        initialize();
+    </script>
+</body>
+</html>
